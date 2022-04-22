@@ -107,7 +107,7 @@ func ArchiveURL(url string) (string, error) {
 		// Check if the body has a canonical link in it as a last resort
 		canonicalMatch, _ := regexp.Compile(canonicalSearch + "[^\"]+")
 		canonicalUrlMatch := canonicalMatch.Find(body)
-		canonicalUrl := strings.Split(string(canonicalUrlMatch), canonicalSearch)[0]
+		canonicalUrl := strings.Split(string(canonicalUrlMatch), canonicalSearch)[1]
 		if canonicalUrl != "" {
 			return string(canonicalUrl), nil
 		}
