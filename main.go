@@ -5,9 +5,14 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net/http"
+	"regexp"
+	"strings"
 )
 
-const archiveApi string = "https://web.archive.org"
+const (
+	archiveApi      string = "https://web.archive.org"
+	canonicalSearch string = "<link rel=\"canonical\" href=\""
+)
 
 type ArchiveOrgWaybackResponse struct {
 	URL               string `json:"url"`
@@ -97,6 +102,14 @@ func ArchiveURL(url string) (string, error) {
 		body, err := ioutil.ReadAll(resp.Body)
 		if err != nil {
 			return "", fmt.Errorf("unable to read response body, err: %v", err)
+		}
+
+		// Check if the body has a canonical link in it as a last resort
+		canonicalMatch, _ := regexp.Compile(canonicalSearch + "[^\"]+")
+		canonicalUrlMatch := canonicalMatch.Find(body)
+		canonicalUrl := strings.Split(string(canonicalUrlMatch), canonicalSearch)[0]
+		if canonicalUrl != "" {
+			return string(canonicalUrl), nil
 		}
 		return "", fmt.Errorf("archive.org had an unexpected response: %v", string(body))
 
