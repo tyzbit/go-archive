@@ -7,6 +7,9 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"time"
+
+	"github.com/avast/retry-go"
 )
 
 const (
@@ -30,28 +33,42 @@ type ArchiveOrgWaybackResponse struct {
 // archive the page if not found. Returns the latest archive.org URL for the page
 // and a boolean whether or not the page existed
 func GetLatestURL(url string) (archiveUrl string, exists bool, err error) {
+	resp := http.Response{}
+	// This obliterates the `http` namespace so it must come after
+	// creating the response object.
 	http := http.Client{}
-	resp, err := http.Get(archiveApi + "/wayback/available?url=" + url)
-	if err != nil {
-		return "", false, fmt.Errorf("error calling wayback api: %w", err)
-	}
+	if err := retry.Do(func() error {
+		resp, err := http.Get(archiveApi + "/wayback/available?url=" + url)
+		if err != nil {
+			return fmt.Errorf("error calling wayback api: %w", err)
+		}
+		if resp.StatusCode == 429 {
+			return fmt.Errorf("rate limited by wayback api")
+		}
+		return nil
+	},
+		retry.Attempts(5),
+		retry.Delay(1*time.Second),
+	); err != nil {
+		return "", false, fmt.Errorf("error in retry logic: %w", err)
+	} else {
+		body, err := ioutil.ReadAll(resp.Body)
+		if err != nil {
+			return "", false, fmt.Errorf("error reading body from wayback api: %w", err)
+		}
 
-	body, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		return "", false, fmt.Errorf("error reading body from wayback api: %w", err)
-	}
+		var r ArchiveOrgWaybackResponse
+		err = json.Unmarshal(body, &r)
+		if err != nil {
+			return "", false, fmt.Errorf("error unmarshalling json: %w, body: %v", err, string(body))
+		}
 
-	var r ArchiveOrgWaybackResponse
-	err = json.Unmarshal(body, &r)
-	if err != nil {
-		return "", false, fmt.Errorf("error unmarshalling json: %w, body: %v", err, string(body))
-	}
+		if r.ArchivedSnapshots.Closest.URL == "" {
+			return "", false, nil
+		}
 
-	if r.ArchivedSnapshots.Closest.URL == "" {
-		return "", false, nil
+		return r.ArchivedSnapshots.Closest.URL, true, nil
 	}
-
-	return r.ArchivedSnapshots.Closest.URL, true, nil
 }
 
 // Takes a slice of strings and a boolean whether or not to archive the page if not found
