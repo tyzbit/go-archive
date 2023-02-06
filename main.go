@@ -37,7 +37,11 @@ func GetLatestURL(url string, retryAttempts uint) (archiveUrl string, exists boo
 	// This obliterates the `http` namespace so it must come after
 	// creating the response object.
 	if err := retry.Do(func() error {
-		http := http.Client{}
+		t := http.DefaultTransport.(*http.Transport).Clone()
+		// Archive.org apparently rate limits according to the connection, not the request or
+		// client IP. This setting ensures every request is in a new connection.
+		t.DisableKeepAlives = true
+		http := http.Client{Transport: t}
 		resp, err := http.Get(archiveApi + "/wayback/available?url=" + url)
 		if err != nil {
 			return fmt.Errorf("error calling wayback api: %w", err)
