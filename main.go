@@ -32,7 +32,7 @@ type ArchiveOrgWaybackResponse struct {
 // Gets the most recent archive.org URL for a url and a boolean whether or not to
 // archive the page if not found. Returns the latest archive.org URL for the page
 // and a boolean whether or not the page existed
-func GetLatestURL(url string) (archiveUrl string, exists bool, err error) {
+func GetLatestURL(url string, retryAttempts uint) (archiveUrl string, exists bool, err error) {
 	resp := http.Response{}
 	// This obliterates the `http` namespace so it must come after
 	// creating the response object.
@@ -47,11 +47,11 @@ func GetLatestURL(url string) (archiveUrl string, exists bool, err error) {
 		}
 		return nil
 	},
-		retry.Attempts(8),
+		retry.Attempts(retryAttempts),
 		retry.Delay(1*time.Second),
 		retry.DelayType(retry.BackOffDelay),
 	); err != nil {
-		return "", false, fmt.Errorf("error in retry logic: %w", err)
+		return "", false, fmt.Errorf("all %d attempts failed: %w", retryAttempts, err)
 	} else {
 		body, err := ioutil.ReadAll(resp.Body)
 		if err != nil {
@@ -74,13 +74,13 @@ func GetLatestURL(url string) (archiveUrl string, exists bool, err error) {
 
 // Takes a slice of strings and a boolean whether or not to archive the page if not found
 // and returns a slice of strings of archive.org URLs and any errors.
-func GetLatestURLs(urls []string, archiveIfNotFound bool) (archiveUrls []string, errs []error) {
+func GetLatestURLs(urls []string, retryAttempts uint, archiveIfNotFound bool) (archiveUrls []string, errs []error) {
 	var errors []error
 	var response []string
 
 	for _, url := range urls {
 		var err error
-		archiveUrl, exists, err := GetLatestURL(url)
+		archiveUrl, exists, err := GetLatestURL(url, retryAttempts)
 		if err != nil {
 			errors = append(errors, fmt.Errorf("unable to get latest archive URL for %v, we got: %v, err: %w", url, archiveUrl, err))
 			continue
