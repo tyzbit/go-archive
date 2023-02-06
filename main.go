@@ -47,8 +47,9 @@ func GetLatestURL(url string) (archiveUrl string, exists bool, err error) {
 		}
 		return nil
 	},
-		retry.Attempts(5),
+		retry.Attempts(20),
 		retry.Delay(1*time.Second),
+		retry.DelayType(retry.BackOffDelay),
 	); err != nil {
 		return "", false, fmt.Errorf("error in retry logic: %w", err)
 	} else {
