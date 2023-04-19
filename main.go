@@ -199,21 +199,21 @@ func ArchiveURL(archiveURL string, retryAttempts uint, cookie string) (archivedU
 			}
 			if rsAttempt.Status == "pending" {
 				return &RetriableError{
-					Err:        err,
-					RetryAfter: 1 * time.Second,
+					Err:        fmt.Errorf("job is still pending"),
+					RetryAfter: 3 * time.Second,
 				}
 			}
-			// It's no longer pending so it's either done or broken, so
-			// we'll save the attempt anyway.
-			rs = rsAttempt
 			if rsAttempt.Status == "success" {
+				rs = rsAttempt
 				return nil
 			}
-			return fmt.Errorf("archive.org request had unexpected status: %v", rsAttempt.Status)
+			return &RetriableError{
+				Err: fmt.Errorf("archive.org request had unexpected status: %v", rsAttempt.Status),
+			}
 		},
 			retry.Attempts(retryAttempts),
 			retry.Delay(1*time.Second),
-			retry.DelayType(retry.FixedDelay),
+			retry.DelayType(retry.BackOffDelay),
 		); err != nil {
 			return "", fmt.Errorf("all %d attempts at archiving the page failed: %w", retryAttempts, err)
 		} else {
