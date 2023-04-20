@@ -166,84 +166,118 @@ func GetLatestURLs(urls []string, retryAttempts uint, requestArchive bool, cooki
 // if the URL wasn't archived.
 // Needs authentication (cookie).
 func ArchiveURL(archiveURL string, retryAttempts uint, cookie string) (archivedURL string, err error) {
-	client := &http.Client{}
-	urlParams := "capture_all=1&url=" + url.QueryEscape(archiveURL)
-	r, err := http.NewRequest(http.MethodPost, archiveApi+"/save/?"+urlParams, bytes.NewBuffer([]byte(urlParams)))
-	if err != nil {
-		return "", fmt.Errorf("Could not build http request")
-	}
-	r.Header = http.Header{
-		"Accept":       {"application/json"},
-		"Content-Type": {"application/x-www-form-urlencoded"},
-		"Cookie":       {cookie},
-	}
-	resp, err := client.Do(r)
-	if err != nil {
-		return "", fmt.Errorf("error calling archive.org: %w", err)
-	}
-	defer func() {
-		if err := resp.Body.Close(); err != nil {
-			panic(err)
-		}
-	}()
-
-	switch resp.StatusCode {
-	// May not be necessary anymore now that we're calling a real API
-	case 301, 302:
-		// Case insensitive
-		location := resp.Header.Get("location")
-		if location == "" {
-			err = fmt.Errorf("archive.org did not reply with a location header")
-		}
-		return location, err
-	// May not be necessary anymore now that we're calling a real API
-	case 523, 520:
-		return "", fmt.Errorf("archive.org declined to archive that page")
-	default:
-		body, err := ioutil.ReadAll(resp.Body)
+	urlSnapshot := ""
+	if err := retry.Do(func() error {
+		client := &http.Client{}
+		urlParams := "capture_all=1&url=" + url.QueryEscape(archiveURL)
+		r, err := http.NewRequest(http.MethodPost, archiveApi+"/save/?"+urlParams, bytes.NewBuffer([]byte(urlParams)))
 		if err != nil {
-			return "", fmt.Errorf("unable to read response body, err: %v", err)
+			return fmt.Errorf("Could not build http request")
 		}
-
-		s := ArchiveOrgWaybackSaveResponse{}
-		_ = json.Unmarshal(body, &s)
-		if s.JobID == "" {
-			return "", fmt.Errorf("archive.org did not respond with a job_id: %v", string(body))
+		r.Header = http.Header{
+			"Accept":       {"application/json"},
+			"Content-Type": {"application/x-www-form-urlencoded"},
+			"Cookie":       {cookie},
 		}
-		rs := ArchiveOrgWaybackStatusResponse{}
-		if err := retry.Do(func() error {
-			rsAttempt, err := CheckArchiveRequestStatus(s.JobID)
-			if err != nil {
-				return fmt.Errorf("error checking archive request status: %v", string(body))
+		resp, err := client.Do(r)
+		if err != nil {
+			return &RetriableError{
+				Err:        fmt.Errorf("error calling archive.org: %w", err),
+				RetryAfter: 3 * time.Second,
 			}
-			if rsAttempt.Status == "pending" {
+		}
+		defer func() {
+			if err := resp.Body.Close(); err != nil {
+				panic(err)
+			}
+		}()
+
+		switch resp.StatusCode {
+		// May not be necessary anymore now that we're calling a real API
+		case 301, 302:
+			// Case insensitive
+			location := resp.Header.Get("location")
+			if location == "" {
 				return &RetriableError{
-					Err:        fmt.Errorf("job is still pending"),
+					Err:        fmt.Errorf("archive.org did not reply with a location header"),
+					RetryAfter: 3 * time.Second,
+				}
+			} else {
+				urlSnapshot = location
+			}
+			return err
+		// May not be necessary anymore now that we're calling a real API
+		case 523, 520:
+			return fmt.Errorf("archive.org declined to archive that page")
+		default:
+			body, err := ioutil.ReadAll(resp.Body)
+			if err != nil {
+				return fmt.Errorf("unable to read response body, err: %v", err)
+			}
+
+			s := ArchiveOrgWaybackSaveResponse{}
+			_ = json.Unmarshal(body, &s)
+			if s.JobID == "" {
+				return &RetriableError{
+					Err:        fmt.Errorf("archive.org did not respond with a job_id: %v", string(body)),
 					RetryAfter: 3 * time.Second,
 				}
 			}
-			if rsAttempt.Status == "success" {
-				rs = rsAttempt
-				return nil
+
+			rs, err := CheckArchiveRequestStatus(s.JobID)
+			if err != nil {
+				return &RetriableError{
+					Err:        fmt.Errorf("error checking archive request status: %v", string(body)),
+					RetryAfter: 3 * time.Second,
+				}
 			}
-			return &RetriableError{
-				Err: fmt.Errorf("archive.org request had unexpected status: %v", rsAttempt.Status),
+
+			// Retry if pending
+			if rs.Status == "pending" {
+				if err := retry.Do(func() error {
+					rs, err = CheckArchiveRequestStatus(s.JobID)
+					if rs.Status == "success" {
+						return nil
+					}
+					return &RetriableError{
+						Err:        fmt.Errorf("job is still pending"),
+						RetryAfter: 3 * time.Second,
+					}
+				},
+					retry.Attempts(40),
+					retry.Delay(1*time.Second),
+					retry.DelayType(retry.BackOffDelay),
+				); err != nil {
+					return fmt.Errorf("all %d attempts waiting for successful job status failed: %w", retryAttempts, err)
+				}
 			}
-		},
-			retry.Attempts(retryAttempts),
-			retry.Delay(1*time.Second),
-			retry.DelayType(retry.BackOffDelay),
-		); err != nil {
-			return "", fmt.Errorf("all %d attempts at archiving the page failed: %w", retryAttempts, err)
-		} else {
+
+			if rs.Status != "success" {
+				return fmt.Errorf("archive.org request had unexpected status: %v", rs.Status)
+			}
+
+			// The job returned success
 			if rs.Timestamp != "" {
 				// We could call the archive.org API again
 				// but URLs are predictable
-				return archiveRoot + rs.Timestamp + archiveURL, nil
+				urlSnapshot = archiveRoot + rs.Timestamp + archiveURL
+				return nil
 			}
 		}
-		return "", fmt.Errorf("archive.org had an unexpected response: %v", string(body))
+		return &RetriableError{
+			Err:        fmt.Errorf("didn't get the response we need from archive.org"),
+			RetryAfter: 3 * time.Second,
+		}
+	},
+		retry.Attempts(retryAttempts),
+		retry.Delay(1*time.Second),
+		retry.DelayType(retry.BackOffDelay),
+	); err != nil {
+		return "", fmt.Errorf("all %d attempts to get a snapshot URL failed: %w", retryAttempts, err)
 	}
+
+	// This should always be a successful response.
+	return urlSnapshot, err
 }
 
 // Checks the status of an archive request job.
