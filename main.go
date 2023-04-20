@@ -68,15 +68,6 @@ func (e *RetriableError) Error() string {
 	return fmt.Sprintf("%s (retry after %v)", e.Err.Error(), e.RetryAfter)
 }
 
-// GetLatestUrl returns the latest archive.org link for a given URL.
-func GetLatestURL(url string, retryAttempts uint) (latestUrl string, err error) {
-	r, err := CheckURLWaybackAvailable(url, retryAttempts)
-	if err != nil {
-		return "", fmt.Errorf("error checking if url is available in wayback: %w", err)
-	}
-	return r.ArchivedSnapshots.Closest.URL, nil
-}
-
 // Checks if a page is available in the Wayback Machine.
 // r.ArchivedSnapshots will be populated if it is.
 func CheckURLWaybackAvailable(url string, retryAttempts uint) (r ArchiveOrgWaybackAvailableResponse, err error) {
@@ -121,12 +112,36 @@ func CheckURLWaybackAvailable(url string, retryAttempts uint) (r ArchiveOrgWayba
 	}
 }
 
+// GetLatestUrl returns the latest archive.org link for a given URL.
+// Cookie can be blank but then this will only be successful
+// if there's an archived page already.
+func GetLatestURL(url string, retryAttempts uint, archiveIfNotFound bool, cookie string) (latestUrl string, err error) {
+	r, err := CheckURLWaybackAvailable(url, retryAttempts)
+	if err != nil {
+		return "", fmt.Errorf("error checking if url is available in wayback: %w", err)
+	}
+
+	closestURL := r.ArchivedSnapshots.Closest.URL
+	if closestURL == "" {
+		archiveUrl, err := ArchiveURL(url, retryAttempts, cookie)
+		if err != nil {
+			return "", fmt.Errorf("unable to archive URL %v, we got: %v, err: %w", url, archiveUrl, err)
+		}
+		// At this point, even if the URL is blank we should return it.
+		closestURL = archiveUrl
+	}
+
+	return closestURL, nil
+}
+
 // Takes a slice of strings and a boolean whether or not to archive the page if not found
 // and returns a slice of strings of archive.org URLs and any errors.
+// Cookie can be blank but then this will only be successful
+// if there's an archived page already.
 func GetLatestURLs(urls []string, retryAttempts uint, archiveIfNotFound bool, cookie string) (archiveUrls []string, errs []error) {
 	for _, url := range urls {
 		var err error
-		archiveUrl, err := GetLatestURL(url, retryAttempts)
+		archiveUrl, err := GetLatestURL(url, retryAttempts, archiveIfNotFound, cookie)
 		if err != nil {
 			errs = append(errs, fmt.Errorf("unable to get latest archive URL for %v, we got: %v, err: %w", url, archiveUrl, err))
 			continue
