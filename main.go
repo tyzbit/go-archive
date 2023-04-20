@@ -15,7 +15,7 @@ import (
 const (
 	archiveApi          string = "https://wwwb-api.archive.org"
 	archiveRoot         string = "https://web.archive.org/web"
-	pendingRetryAttemps int    = 40
+	pendingRetryAttemps uint   = 40
 )
 
 type ArchiveOrgWaybackAvailableResponse struct {
