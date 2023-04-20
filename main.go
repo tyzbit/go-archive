@@ -13,8 +13,9 @@ import (
 )
 
 const (
-	archiveApi  string = "https://wwwb-api.archive.org"
-	archiveRoot string = "https://web.archive.org/web"
+	archiveApi          string = "https://wwwb-api.archive.org"
+	archiveRoot         string = "https://web.archive.org/web"
+	pendingRetryAttemps int    = 40
 )
 
 type ArchiveOrgWaybackAvailableResponse struct {
@@ -244,7 +245,7 @@ func ArchiveURL(archiveURL string, retryAttempts uint, cookie string) (archivedU
 						RetryAfter: 3 * time.Second,
 					}
 				},
-					retry.Attempts(40),
+					retry.Attempts(pendingRetryAttemps),
 					retry.Delay(1*time.Second),
 					retry.DelayType(retry.BackOffDelay),
 				); err != nil {
