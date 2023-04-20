@@ -115,13 +115,17 @@ func CheckURLWaybackAvailable(url string, retryAttempts uint) (r ArchiveOrgWayba
 // GetLatestUrl returns the latest archive.org link for a given URL.
 // Cookie can be blank but then this will only be successful
 // if there's an archived page already.
-func GetLatestURL(url string, retryAttempts uint, archiveIfNotFound bool, cookie string) (latestUrl string, err error) {
-	r, err := CheckURLWaybackAvailable(url, retryAttempts)
-	if err != nil {
-		return "", fmt.Errorf("error checking if url is available in wayback: %w", err)
+func GetLatestURL(url string, retryAttempts uint, requestArchive bool, cookie string) (latestUrl string, err error) {
+	closestURL := ""
+	if !requestArchive {
+		r, err := CheckURLWaybackAvailable(url, retryAttempts)
+		if err != nil {
+			return "", fmt.Errorf("error checking if url is available in wayback: %w", err)
+		}
+
+		closestURL = r.ArchivedSnapshots.Closest.URL
 	}
 
-	closestURL := r.ArchivedSnapshots.Closest.URL
 	if closestURL == "" {
 		archiveUrl, err := ArchiveURL(url, retryAttempts, cookie)
 		if err != nil {
@@ -138,10 +142,10 @@ func GetLatestURL(url string, retryAttempts uint, archiveIfNotFound bool, cookie
 // and returns a slice of strings of archive.org URLs and any errors.
 // Cookie can be blank but then this will only be successful
 // if there's an archived page already.
-func GetLatestURLs(urls []string, retryAttempts uint, archiveIfNotFound bool, cookie string) (archiveUrls []string, errs []error) {
+func GetLatestURLs(urls []string, retryAttempts uint, requestArchive bool, cookie string) (archiveUrls []string, errs []error) {
 	for _, url := range urls {
 		var err error
-		archiveUrl, err := GetLatestURL(url, retryAttempts, archiveIfNotFound, cookie)
+		archiveUrl, err := GetLatestURL(url, retryAttempts, requestArchive, cookie)
 		if err != nil {
 			errs = append(errs, fmt.Errorf("unable to get latest archive URL for %v, we got: %v, err: %w", url, archiveUrl, err))
 			continue
