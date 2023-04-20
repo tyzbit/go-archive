@@ -58,17 +58,17 @@ type ArchiveOrgWaybackSparklineResponse struct {
 	Status  map[string]string `json:"status"`
 }
 
-// RetriableError is a custom error that contains a positive duration for the next retry
 type RetriableError struct {
 	Err        error
 	RetryAfter time.Duration
 }
 
-// Error returns error message and a Retry-After duration
+// Error returns error message and a Retry-After duration.
 func (e *RetriableError) Error() string {
 	return fmt.Sprintf("%s (retry after %v)", e.Err.Error(), e.RetryAfter)
 }
 
+// GetLatestUrl returns the latest archive.org link for a given URL.
 func GetLatestURL(url string, retryAttempts uint) (latestUrl string, err error) {
 	r, err := CheckURLWaybackAvailable(url, retryAttempts)
 	if err != nil {
@@ -249,7 +249,7 @@ func CheckArchiveRequestStatus(jobID string) (r ArchiveOrgWaybackStatusResponse,
 	return r, nil
 }
 
-// Checks the sparkline (history of archived copies) for a given URL
+// Checks the sparkline (history of archived copies) for a given URL.
 // Does not need to be authenticated.
 func CheckArchiveSparkline(url string) (r ArchiveOrgWaybackSparklineResponse, err error) {
 	client := http.Client{}
